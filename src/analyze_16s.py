@@ -129,19 +129,28 @@ def main():
         diversity.append({"sample_id": sample, "group": metadata[sample].get("group", ""), "reads_retained": total, "observed_asvs": len(counts), "shannon": f"{-sum(p * math.log(p) for p in proportions):.3f}" if proportions else "0.000", "simpson": f"{1 - sum(p * p for p in proportions):.3f}" if proportions else "0.000"})
     write_tsv(output / "alpha_diversity.tsv", list(diversity[0]), diversity)
 
+    beta_rows = []
+    samples = sorted(metadata)
+    for index, sample_a in enumerate(samples):
+        for sample_b in samples[index + 1 :]:
+            numerator = sum(abs(sample_asvs[sample_a][seq] - sample_asvs[sample_b][seq]) for seq in ordered_asvs)
+            denominator = sum(sample_asvs[sample_a].values()) + sum(sample_asvs[sample_b].values())
+            beta_rows.append({"sample_a": sample_a, "sample_b": sample_b, "bray_curtis": f"{numerator / denominator:.3f}" if denominator else "0.000"})
+    write_tsv(output / "beta_diversity_bray_curtis.tsv", ["sample_a", "sample_b", "bray_curtis"], beta_rows)
+
     summary = {"input_reads": len(kept) + sum(rejected.values()), "retained_reads": len(kept), "rejected_reads": sum(rejected.values()), "asvs": len(ordered_asvs), **{f"rejected_{k}": v for k, v in sorted(rejected.items())}}
     write_tsv(output / "run_summary.tsv", list(summary), [summary])
-    report(output / "report.html", summary, diversity, taxonomy_rows)
+    report(output / "report.html", summary, diversity, beta_rows, taxonomy_rows)
 
 
-def report(path, summary, diversity, taxonomy):
+def report(path, summary, diversity, beta, taxonomy):
     def table(rows):
         cols = list(rows[0]) if rows else []
         head = "".join(f"<th>{html.escape(c)}</th>" for c in cols)
         body = "".join("<tr>" + "".join(f"<td>{html.escape(str(r[c]))}</td>" for c in cols) + "</tr>" for r in rows)
         return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
     metrics = "".join(f"<li><strong>{html.escape(k.replace('_', ' '))}:</strong> {v}</li>" for k, v in summary.items())
-    page = f"""<!doctype html><html><head><meta charset='utf-8'><title>16S analysis report</title><style>body{{font:16px system-ui;margin:2rem;max-width:1100px;color:#17212b}}table{{border-collapse:collapse;width:100%;margin:1rem 0}}th,td{{border:1px solid #ccd6dd;padding:.45rem;text-align:left}}th{{background:#eaf3f5}}code{{background:#f4f4f4;padding:.15rem}}</style></head><body><h1>16S amplicon analysis report</h1><p>Demo-oriented exact-sequence analysis. Taxonomy assignments are nearest-reference k-mer matches, not a replacement for validated classifiers.</p><h2>Run summary</h2><ul>{metrics}</ul><h2>Alpha diversity</h2>{table(diversity)}<h2>ASV taxonomy</h2>{table(taxonomy)}</body></html>"""
+    page = f"""<!doctype html><html><head><meta charset='utf-8'><title>16S analysis report</title><style>body{{font:16px system-ui;margin:2rem auto;max-width:1100px;color:#17212b;line-height:1.5}}table{{border-collapse:collapse;width:100%;margin:1rem 0}}th,td{{border:1px solid #ccd6dd;padding:.45rem;text-align:left}}th{{background:#eaf3f5}}.note{{background:#fff7df;border-left:4px solid #d69600;padding:1rem}}</style></head><body><h1>16S amplicon analysis report</h1><p class='note'><strong>Interpretation boundary:</strong> this report uses synthetic teaching data and a toy reference catalog. It demonstrates workflow mechanics, not a biological finding.</p><h2>Run summary</h2><ul>{metrics}</ul><h2>Within-sample diversity (alpha)</h2>{table(diversity)}<h2>Between-sample dissimilarity (Bray–Curtis)</h2>{table(beta)}<h2>ASV taxonomy</h2>{table(taxonomy)}<h2>Methods</h2><p>Reads were filtered by length and ambiguous-base fraction, dereplicated into exact sequence variants, and compared with reference sequences using 8-mer Jaccard similarity. A validated region-specific classifier and a full denoising workflow (for example, DADA2 in QIIME 2) are required for real data.</p></body></html>"""
     path.write_text(page, encoding="utf-8")
 
 

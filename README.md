@@ -1,90 +1,152 @@
-# 16S Amplicon Explorer
+# Reproducible 16S rRNA Amplicon Analysis Workflow
 
-A reproducible starter project for exploring bacterial communities from 16S rRNA gene amplicons. It includes a dependency-free, transparent FASTA demonstration pipeline and a production-oriented QIIME 2 workflow outline for raw paired-end reads.
+[![Validate demo analysis](https://github.com/FarhadRafiei/16s-amplicon-explorer/actions/workflows/ci.yml/badge.svg)](https://github.com/FarhadRafiei/16s-amplicon-explorer/actions/workflows/ci.yml)
 
-> **Scientific note:** 16S is a DNA gene marker, although it encodes 16S rRNA. The bundled reads and reference catalog are synthetic teaching data. They validate the project mechanics only and must not be used for biological inference or publication.
+This repository provides a compact, reproducible workflow for exploratory analysis of 16S rRNA gene amplicon data. It includes an executable demonstration pipeline, automated tests, a container specification, and a documented production workflow for QIIME 2 and DADA2.
 
-## What it produces
+The project is intended to demonstrate transparent data handling and reporting. It separates a small teaching implementation from the validated tools required for analysis of real sequencing data.
 
-- filtering summary and exact sequence variants (ASVs)
-- feature/count table by sample
-- transparent nearest-reference k-mer taxonomy assignments
-- alpha-diversity metrics: observed ASVs, Shannon, and Simpson
-- standalone HTML report
+## Scope and limitations
+
+The files in `data/demo/` and `data/reference/` are synthetic. They are included solely to test the workflow and illustrate its outputs. They must not be used to draw biological conclusions.
+
+The Python implementation performs basic validation, exact-sequence dereplication, k-mer reference matching, and diversity calculations. It is not a substitute for read denoising, chimera detection, contaminant assessment, or a region-specific taxonomic classifier.
+
+## Workflow overview
+
+1. Validate sequence characters, sequence length, ambiguous-base content, and sample metadata.
+2. Dereplicate retained reads into exact amplicon sequence variants (ASVs).
+3. Generate an ASV count table by sample.
+4. Assign provisional taxonomy using nearest-reference 8-mer Jaccard similarity.
+5. Calculate alpha diversity (observed ASVs, Shannon, Simpson) and Bray–Curtis dissimilarity.
+6. Write tabular outputs and a standalone HTML report.
+
+## Requirements
+
+- Python 3.10 or later
+- `make` (optional, for convenience commands)
+- Docker (optional, for containerized execution)
+
+No third-party Python packages are required for the demonstration workflow.
 
 ## Quick start
 
-Python 3.10+ is sufficient; there are no package dependencies.
-
 ```bash
+git clone https://github.com/FarhadRafiei/16s-amplicon-explorer.git
+cd 16s-amplicon-explorer
+make test
 make demo
 open results/demo/report.html
-make test
 ```
 
-The demo writes outputs to `results/demo/`:
+## Inputs
 
-| File | Contents |
-| --- | --- |
-| `run_summary.tsv` | filtering and ASV totals |
-| `feature_table.tsv` | per-sample ASV counts |
-| `taxonomy.tsv` | sequence, assignment, and confidence proxy |
-| `alpha_diversity.tsv` | sample diversity metrics |
-| `report.html` | readable summary |
+The demonstrator accepts a demultiplexed FASTA file, a tab-separated metadata file, and a reference FASTA file.
 
-## Input contract for the demo analyzer
+### Read headers
 
-The script accepts an already-demultiplexed FASTA file. Its headers must begin with `sample_id|`, and every sample must occur in the `sample_id` column of a tab-separated metadata file.
+Each sequence header must begin with a sample identifier followed by a vertical bar:
+
+```text
+>sample_01|read_001
+ACGT...
+```
+
+### Metadata
+
+The metadata table must be tab-separated and contain a `sample_id` column. Additional columns, such as treatment group or sampling site, are retained as metadata.
+
+```text
+sample_id	group
+sample_01	control
+sample_02	treatment
+```
+
+### Reference catalog
+
+Reference sequence headers use the following format:
+
+```text
+>reference_id|d__Bacteria;p__...;g__...;s__...
+ACGT...
+```
+
+## Running a custom analysis
 
 ```bash
 python3 src/analyze_16s.py \
   --fasta path/to/demultiplexed.fasta \
   --metadata path/to/metadata.tsv \
   --reference path/to/reference.fasta \
-  --output results/my_run
+  --output results/my_analysis
 ```
 
-Reference FASTA headers follow `reference_id|taxonomy`, where taxonomy uses semicolon-separated ranks. The included k-mer assignment is deliberately simple and auditable; replace it with a trained, versioned classifier for research results.
+| Output | Description |
+| --- | --- |
+| `run_summary.tsv` | Number of retained and rejected reads; ASV count |
+| `feature_table.tsv` | ASV abundance by sample |
+| `taxonomy.tsv` | Provisional taxonomic assignments and similarity scores |
+| `alpha_diversity.tsv` | Observed ASVs, Shannon and Simpson indices |
+| `beta_diversity_bray_curtis.tsv` | Pairwise Bray–Curtis dissimilarities |
+| `report.html` | Self-contained analysis summary |
 
-## Recommended production workflow (QIIME 2)
+## Containerized execution
 
-For real Illumina data, preserve raw FASTQ files outside Git and record all versions and parameters. A typical workflow is:
+```bash
+docker build -t 16s-amplicon-analysis .
+docker run --rm -v "$(pwd):/project" 16s-amplicon-analysis \
+  --fasta data/demo/reads.fasta \
+  --metadata data/demo/metadata.tsv \
+  --reference data/reference/toy_16s_references.fasta \
+  --output results/docker-demo
+```
 
-1. Prepare a QIIME 2 manifest and metadata file, validate metadata, and import reads.
-2. Inspect demultiplexed quality profiles; use DADA2 to trim, denoise, merge pairs, and remove chimeras.
-3. Build a rooted phylogeny (`mafft`, `mask`, `fasttree`, `midpoint-root`) and calculate core diversity metrics at a documented sampling depth.
-4. Classify representative sequences with a region-matched, versioned SILVA or GTDB classifier; retain the classifier and database provenance.
-5. Export feature tables, taxonomy, diversity results, and visualizations. Confirm negative controls and read-depth behavior before interpretation.
+## Recommended workflow for real data
 
-Illustrative commands (adjust artifact types and trim positions after inspecting your own data):
+For paired-end Illumina reads, use QIIME 2 and DADA2 with parameters selected after quality inspection. A typical analysis includes:
+
+1. Define metadata, inclusion criteria, controls, and the study hypothesis.
+2. Import reads and inspect per-base quality profiles.
+3. Trim and denoise with DADA2; merge pairs and remove chimeras.
+4. Construct a phylogeny and calculate diversity metrics at a documented sampling depth.
+5. Assign taxonomy using a versioned, primer-region-matched SILVA or GTDB classifier.
+6. Examine negative controls, library sizes, and group dispersion before hypothesis testing.
+7. Record software versions, reference database release, and all analysis parameters.
+
+Illustrative commands only—truncation lengths and classifier choice must be determined from the study data:
 
 ```bash
 qiime tools import --type 'SampleData[PairedEndSequencesWithQuality]' \
-  --input-path manifest.csv --output-path demux.qza --input-format PairedEndFastqManifestPhred33V2
+  --input-path manifest.csv --output-path demux.qza \
+  --input-format PairedEndFastqManifestPhred33V2
 qiime demux summarize --i-data demux.qza --o-visualization demux.qzv
 qiime dada2 denoise-paired --i-demultiplexed-seqs demux.qza \
   --p-trunc-len-f 240 --p-trunc-len-r 200 \
   --o-table table.qza --o-representative-sequences rep-seqs.qza \
   --o-denoising-stats denoising-stats.qza
-qiime feature-classifier classify-sklearn --i-classifier silva-region-classifier.qza \
+qiime feature-classifier classify-sklearn \
+  --i-classifier region-matched-classifier.qza \
   --i-reads rep-seqs.qza --o-classification taxonomy.qza
 ```
 
-Use current QIIME 2 documentation and a reference database license appropriate to your study. Never make taxonomic or differential-abundance claims from the bundled toy catalog.
+## Reproducibility and data stewardship
 
-## Reproducibility and governance
+- Do not commit raw participant data, identifiers, consent-restricted metadata, or credentials.
+- Record data accessions, checksums, primer region, extraction and sequencing batches, controls, tool versions, and parameters.
+- Interpret 16S results at the taxonomic resolution supported by the amplicon region and classifier.
+- Cite the original dataset, analysis software, and reference database in derived work.
 
-- The GitHub workflow runs tests and the demo pipeline on every push.
-- Do not commit participant data, API keys, raw sequencing data, or patient metadata.
-- For a study, add a `data/README.md` with sample provenance, primer region, extraction kit, negative controls, sequencing platform, database release, and exact software versions.
-- Add a license and cite all databases, tools, and original data before sharing results.
-
-## Project layout
+## Repository structure
 
 ```text
-data/          synthetic demo data and tiny test reference
-src/           analysis implementation
-tests/         automated checks
-results/       generated analysis outputs (ignored by Git)
-.github/       continuous integration
+data/                 Synthetic demonstration inputs
+docs/                 Study-planning and portfolio notes
+src/                  Analysis implementation
+tests/                Automated tests
+results/              Generated output; excluded from version control
+.github/workflows/    Continuous integration
 ```
+
+## License and citation
+
+This project is released under the MIT License. Update `CITATION.cff` with the author and repository details before citing or reusing the work.
